@@ -1,6 +1,7 @@
 import { realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { permissionRequestDisplayReason } from './locales'
 
 /** The session subset grants need: its working directory anchors relative paths. */
 export interface GrantSession {
@@ -22,6 +23,7 @@ interface ApprovalRequestLike {
   readonly toolName: string
   readonly callId?: string
   readonly reason: string
+  readonly displayReason?: { readonly en: string; readonly [locale: string]: string }
   readonly signal?: AbortSignal
 }
 
@@ -87,28 +89,26 @@ export function listGrants(session: GrantSession): string[] {
 function toolDefinition(host: GrantHost): unknown {
   return {
     name: TOOL_NAME,
-    description: 'Request write access to one directory outside the session workspace for the rest of this session. '
-      + 'Call it after a command or file write was denied for that directory, and retry the operation only once it succeeds. '
-      + 'The user decides; the directory stays read-only when they decline.',
+    description: 'Ask the user to make one directory writable for this session. '
+      + 'Call it after a write there was denied, then retry.',
     parameters: {
       path: {
         type: 'string',
-        description: 'Directory, absolute or relative to the session workspace; `~` expands.',
+        description: 'Directory, absolute or relative to the workspace; `~` expands.',
       },
     },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['path', 'granted'],
+        required: ['path'],
         properties: {
           path: { type: 'string' },
-          granted: { type: 'boolean' },
         },
       },
-      render: (_args: unknown, value: { path: string; granted: boolean }) => [{
+      render: (_args: unknown, value: { path: string }) => [{
         type: 'text',
-        text: `Write access to ${value.path} is allowed for this session.`,
+        text: `${value.path} is writable for this session.`,
       }],
     },
     async execute(args: ToolArgs, exec: ToolRunContextLike) {
@@ -126,6 +126,7 @@ function toolDefinition(host: GrantHost): unknown {
           toolName: TOOL_NAME,
           ...exec.callId === undefined ? {} : { callId: exec.callId },
           reason: `Write access to ${dir} for this session.`,
+          displayReason: permissionRequestDisplayReason(dir),
           ...exec.signal === undefined ? {} : { signal: exec.signal },
         })
       } catch (error: unknown) {
@@ -135,7 +136,7 @@ function toolDefinition(host: GrantHost): unknown {
         throw new Error(`${TOOL_NAME}: the user did not allow writes under ${dir} (${outcome})`)
       }
       grantDirectory(host, session, path)
-      return { path: dir, granted: true }
+      return { path: dir }
     },
   }
 }
@@ -151,8 +152,7 @@ export function applyGrants(host: GrantHost): void {
       prompt.section({
         name: `tool:${TOOL_NAME}`,
         order: prompt.getSectionOrder('TOOL_BASH'),
-        text: 'When a path outside the session workspace is not writable, request it with the '
-          + `\`${TOOL_NAME}\` tool instead of retrying with sandbox_permissions; the wider sandbox mode stays off.`,
+        text: `A path outside the workspace is not writable: request it with \`${TOOL_NAME}\`, not sandbox_permissions.`,
       })
     }
     return dispose

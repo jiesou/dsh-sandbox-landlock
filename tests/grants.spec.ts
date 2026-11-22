@@ -14,9 +14,16 @@ function sandboxDir(): string {
 
 function fakeHost() {
   const registered = new Map<string, Record<string, unknown>>()
+  const calls: Array<Record<string, unknown>> = []
+  let outcome = 'allowed-once'
   const host = {
     sandboxPolicy: { registerWritableRoot: vi.fn(() => () => {}) },
-    approval: { request: vi.fn(async () => 'allowed-once') },
+    approval: {
+      request: async (request: unknown) => {
+        calls.push(request as Record<string, unknown>)
+        return outcome
+      },
+    },
     tools: {
       register: (tool: Record<string, unknown>) => {
         registered.set(tool.name as string, tool)
@@ -25,7 +32,7 @@ function fakeHost() {
     },
   }
   applyGrants(host)
-  return { host, registered }
+  return { host, registered, calls, setOutcome: (next: string) => { outcome = next } }
 }
 
 describe('resolveGrantDir', () => {
@@ -61,20 +68,22 @@ describe('grants registry', () => {
 
 describe('sandbox_permission_request tool', () => {
   const tool = () => {
-    const { host, registered } = fakeHost()
+    const { host, registered, calls, setOutcome } = fakeHost()
     return {
       host,
+      calls,
+      setOutcome,
       definition: registered.get(TOOL_NAME) as {
         execute: (
           args: Record<string, unknown>,
           exec: { agent: { session: FakeSession }; callId: string; signal: AbortSignal },
-        ) => Promise<{ path: string; granted: boolean }>
+        ) => Promise<{ path: string }>
       },
     }
   }
 
   it('授权前先问用户，获批后才登记', async () => {
-    const { host, definition } = tool()
+    const { host, calls, definition } = tool()
     const root = sandboxDir()
     mkdirSync(join(root, 'a'))
 
@@ -83,17 +92,23 @@ describe('sandbox_permission_request tool', () => {
       { agent: { session: { header: { cwd: root } } }, callId: 'call-1', signal: new AbortController().signal },
     )
 
-    expect(host.approval.request).toHaveBeenCalledWith(expect.objectContaining({
+    expect(calls[0]).toMatchObject({
       toolName: TOOL_NAME,
       callId: 'call-1',
       reason: `Write access to ${join(root, 'a')} for this session.`,
-    }))
-    expect(result).toEqual({ path: join(root, 'a'), granted: true })
+    })
+    expect(result).toEqual({ path: join(root, 'a') })
+    expect(calls[0]).toMatchObject({
+      displayReason: expect.objectContaining({
+        zh: `允许本会话写入 ${join(root, 'a')}？`,
+        en: `Allow writes under ${join(root, 'a')} for this session?`,
+      }),
+    })
   })
 
   it('用户拒绝时不登记', async () => {
-    const { host, definition } = tool()
-    host.approval.request.mockResolvedValueOnce('rejected')
+    const { host, setOutcome, definition } = tool()
+    setOutcome('rejected')
     const root = sandboxDir()
     mkdirSync(join(root, 'a'))
 
