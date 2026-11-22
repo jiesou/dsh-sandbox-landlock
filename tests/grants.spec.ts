@@ -120,14 +120,14 @@ describe('grant tool', () => {
     const session = { header: { cwd: root } }
 
     const result = await definition.execute(
-      { path: 'a', reason: 'build output' },
+      { path: 'a' },
       { agent: { session }, callId: 'call-1', signal: new AbortController().signal },
     )
 
     expect(host.approval.request).toHaveBeenCalledWith(expect.objectContaining({
       toolName: 'grant',
       callId: 'call-1',
-      reason: `build output Directory: ${join(root, 'a')}`,
+      reason: `Allow writes under ${join(root, 'a')} for this session.`,
     }))
     expect(result).toMatchObject({ action: 'grant', path: join(root, 'a'), grants: [join(root, 'a')] })
   })
@@ -139,13 +139,13 @@ describe('grant tool', () => {
     mkdirSync(join(root, 'a'))
 
     await expect(definition.execute(
-      { path: 'a', reason: 'build output' },
+      { path: 'a' },
       { agent: { session: { header: { cwd: root } } }, callId: 'call-2', signal: new AbortController().signal },
     )).rejects.toThrow(/did not allow/u)
     expect(host.sandboxPolicy.registerWritableRoot).not.toHaveBeenCalled()
   })
 
-  it('缺少 reason 或 path 时报错，list 不需要审批', async () => {
+  it('缺少 path 时报错，list 不需要审批', async () => {
     const { host, definition } = tool()
     const root = sandboxDir()
     const exec = {
@@ -153,8 +153,7 @@ describe('grant tool', () => {
       callId: 'call-3',
       signal: new AbortController().signal,
     }
-    await expect(definition.execute({ path: 'a' }, exec)).rejects.toThrow(/reason is required/u)
-    await expect(definition.execute({ reason: 'x' }, exec)).rejects.toThrow(/path is required/u)
+    await expect(definition.execute({}, exec)).rejects.toThrow(/path is required/u)
     await expect(definition.execute({ action: 'list' }, exec)).resolves.toMatchObject({ action: 'list', grants: [] })
     expect(host.approval.request).not.toHaveBeenCalled()
   })

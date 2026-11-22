@@ -12,7 +12,7 @@ It also adds what the stock shim lacks: **session-scoped directory grants you ca
 
 ```text
 > the generated files should land in ~/Documents/assets/renders
-grant(path="~/Documents/assets/renders", reason="render output for the video")
+grant(path="~/Documents/assets/renders")
 ```
 
 The command acts for you. The tool asks first: it goes through the harness approval seam, and only an approval mints the grant. A grant is registered through `SandboxPolicyService.registerWritableRoot`, so it applies to the session's next confined call (bash and the file tools alike), is revoked the moment you revoke it, and never widens the sandbox mode.

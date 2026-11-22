@@ -31,7 +31,6 @@ interface ToolRunContextLike {
 interface ToolArgs {
   readonly action?: 'grant' | 'revoke' | 'list'
   readonly path?: string
-  readonly reason?: string
 }
 
 interface ApprovalRequestLike {
@@ -164,10 +163,6 @@ function toolDefinition(host: GrantHost): unknown {
         type: 'string',
         description: 'Directory, absolute or relative to the session workspace; `~` expands. Required for grant and revoke.',
       },
-      reason: {
-        type: 'string',
-        description: 'One sentence for the user explaining why this directory needs write access. Required for grant.',
-      },
     },
     output: {
       schema: {
@@ -195,8 +190,6 @@ function toolDefinition(host: GrantHost): unknown {
         return { action, path: dir, grants: listGrants(session), message: `Revoked write access to ${dir}.` }
       }
       if (action !== 'grant') throw new Error(`grant: unknown action "${action}"`)
-      const reason = args.reason?.trim() ?? ''
-      if (reason === '') throw new Error('grant: reason is required when asking for a directory')
       const dir = resolveGrantDir(session, path)
       if (host.approval === undefined) throw new Error('grant: approvals are unavailable in this composition')
       let outcome: string
@@ -205,7 +198,7 @@ function toolDefinition(host: GrantHost): unknown {
           agent: exec.agent,
           toolName: 'grant',
           ...exec.callId === undefined ? {} : { callId: exec.callId },
-          reason: `${reason} Directory: ${dir}`,
+          reason: `Allow writes under ${dir} for this session.`,
           ...exec.signal === undefined ? {} : { signal: exec.signal },
         })
       } catch (error: unknown) {

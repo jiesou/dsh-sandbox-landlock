@@ -19,9 +19,11 @@ a host that registered a grant could not reach it from bash.
 - `grantFlags()` and the file provider's root list both read
   `policy.additionalWritableRoots`.
 - `/grant <dir> | /grant list | /grant revoke <dir>` acts for the user.
-- A `grant` tool exposes the same operation. It resolves and validates the
-  directory first, then asks the approval seam, and only `allowed-once` mints
-  the grant. Listing and revoking need no approval: they cannot widen anything.
+- A `grant` tool exposes the same operation with two parameters, `action` and
+  `path`. It resolves and validates the directory first, then asks the approval
+  seam with a host-written sentence, and only `allowed-once` mints the grant.
+  The model supplies no justification text: the directory is the whole request.
+  Listing and revoking need no approval: they cannot widen anything.
 - Grants resolve `~` and relative paths against the Session workspace, and store
   the physical path (the enforcing host rejects symlinked roots).
 - The registry is plugin-owned (`WeakMap<Session, Map<dir, disposer>>`) so
