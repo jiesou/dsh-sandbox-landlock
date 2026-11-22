@@ -1,9 +1,25 @@
 {
-  "name": "dsh-sandbox-landlock",
+  "name": "dsh-sandbox-better",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH bundle: Landlock-only sandbox provider (landlock-run launcher, no namespaces, uid view untouched).",
+  "description": "DSH bundle: Landlock-only sandbox provider with session-scoped directory grants (`/grant` and the `grant` tool).",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "sandbox",
+    "landlock",
+    "permissions"
+  ],
+  "engines": {
+    "dsh": ">=0.2.2-rc.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jiesou/dsh-sandbox-better.git"
+  },
+  "homepage": "https://github.com/jiesou/dsh-sandbox-better#readme",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
@@ -23,7 +39,8 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "check": "pnpm run typecheck && pnpm run build && pnpm run test"
+    "check": "pnpm run typecheck && pnpm run build && pnpm run test",
+    "release": "pnpm version patch && git push --follow-tags"
   },
   "files": [
     "lib",
@@ -43,6 +60,7 @@
     "@deepseek-ai/dsh-fs": "0.2.0-rc.2",
     "@deepseek-ai/dsh-fs-local": "0.2.0-rc.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.0-rc.2",
+    "@deepseek-ai/schemastery": "3.18.4",
     "@types/node": "^26.2.0",
     "tsdown": "^0.22.14",
     "typescript": "^7.0.2",

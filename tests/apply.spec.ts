@@ -130,3 +130,26 @@ describe('read-only', () => {
     expect(ro.argv.filter((x) => x === '--rw')).toHaveLength(1)
   })
 })
+
+describe('additionalWritableRoots', () => {
+  it('宿主 registerWritableRoot 授予的目录进入同一条命令的 rw 面', async () => {
+    const extra = join(tmpdir(), 'dsl-spec-extra-root')
+    mkdirSync(extra, { recursive: true })
+    const provided4 = new Map<string, unknown>()
+    await apply({ provide: (id, service) => { provided4.set(id, service) } }, {})
+    const confine4 = (provided4.get('sandbox') as { confine: typeof confine }).confine
+    const wrapped4 = confine4(['bash', '-c', 'echo hi'], {
+      mode: 'workspace-write',
+      workspaceRoot: workspace,
+      additionalWritableRoots: [extra],
+    })
+    expect(wrapped4.argv).toContain(extra)
+
+    const readOnly = confine4(['bash', '-c', 'echo hi'], {
+      mode: 'read-only',
+      workspaceRoot: workspace,
+      additionalWritableRoots: [extra],
+    })
+    expect(readOnly.argv).not.toContain(extra)
+  })
+})

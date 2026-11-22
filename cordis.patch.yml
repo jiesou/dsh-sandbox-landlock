@@ -4,8 +4,8 @@
 - id: fs-sandbox
   disabled: true
 - insert:
-    - id: sandbox-landlock
-      name: dsh-sandbox-landlock
+    - id: sandbox-better
+      name: dsh-sandbox-better
       config:
         writeDirs:
           - ~/.dsh

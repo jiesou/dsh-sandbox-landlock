@@ -20,6 +20,9 @@ importers:
       '@deepseek-ai/dsh-sandbox-policy':
         specifier: 0.2.0-rc.2
         version: 0.2.0-rc.2(86f6fd7d6eb5d5ef0468bcbf88da8d4d)
+      '@deepseek-ai/schemastery':
+        specifier: 3.18.4
+        version: 3.18.4
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0

@@ -9,10 +9,13 @@ import type { FsEditRequest, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome,
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import z from '@deepseek-ai/schemastery'
+import { applyGrants } from './grants'
+import type { GrantHost } from './grants'
 
 interface SandboxPolicy {
   mode: 'read-only' | 'workspace-write' | 'danger-full-access'
   workspaceRoot: string
+  additionalWritableRoots?: readonly string[]
 }
 
 interface SandboxPolicyService {
@@ -50,6 +53,8 @@ interface Config {
 interface PluginCtx {
   provide(id: string, service: unknown): void
   plugin?: (plugin: unknown, config?: unknown) => unknown
+  get?: (name: string) => unknown
+  effect?: (callback: () => () => void, label?: string) => unknown
 }
 
 const sandboxPolicyInject = ['sandboxPolicy']
@@ -115,7 +120,12 @@ class LandlockFileSystem extends LocalFileSystem {
       throw new FsError(`cannot write "${target.displayPath}": file access denied under read-only mode`, 'FS_SANDBOX_DENIED')
     }
     const fresh = await this.resolve(target.displayPath)
-    const roots = [canonicalRoot(policy.workspaceRoot), '/tmp', ...this.writeDirs]
+    const roots = [
+      canonicalRoot(policy.workspaceRoot),
+      '/tmp',
+      ...(policy.additionalWritableRoots ?? []),
+      ...this.writeDirs,
+    ]
     if (roots.some(root => contains(root, fresh.targetKey))) return fresh
     throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
   }
@@ -164,7 +174,7 @@ async function importSeam(): Promise<Seam> {
   const globalRoot = spawnSync('npm', ['root', '-g'], { encoding: 'utf8' }).stdout?.trim()
   if (globalRoot) candidates.push(join(globalRoot, '@deepseek-ai', 'dsh', SEAM_RELATIVE))
   const found = candidates.find((path) => existsSync(path))
-  if (!found) throw new Error('dsh-sandbox-landlock: node-addon-landlock-run seam not found next to the dsh install')
+  if (!found) throw new Error('dsh-sandbox-better: node-addon-landlock-run seam not found next to the dsh install')
   return import(found) as Promise<Seam>
 }
 
@@ -185,7 +195,14 @@ function resolveDevices(patterns: readonly string[] = []): string[] {
 
 function grantFlags(seam: Seam, policy: SandboxPolicy, writeDirs: readonly string[], devicePaths: readonly string[]): string[] {
   const readWrite = policy.mode === 'workspace-write'
-    ? ['/dev/null', '/tmp', policy.workspaceRoot, ...writeDirs, ...resolveDevices(devicePaths)]
+    ? [
+        '/dev/null',
+        '/tmp',
+        policy.workspaceRoot,
+        ...(policy.additionalWritableRoots ?? []),
+        ...writeDirs,
+        ...resolveDevices(devicePaths),
+      ]
     : ['/dev/null']
   // landlock-run 对打不开的授权根 fail-closed（exit 125，整条命令不执行），
   // 不存在的目录必须剔除；目录稍后建出来后下次 confine 自动纳入。
@@ -208,7 +225,7 @@ function isDirectory(path: string): boolean {
   }
 }
 
-export const name = 'dsh-sandbox-landlock'
+export const name = 'dsh-sandbox-better'
 
 export async function apply(ctx: Context | PluginCtx, config: Config = {}): Promise<void> {
   const writeDirs = normalizeDirs(config.writeDirs ?? [])
@@ -218,19 +235,19 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
   try {
     seam = await importSeam()
   } catch (error) {
-    console.warn(`dsh-sandbox-landlock: ${error instanceof Error ? error.message : String(error)}; sandbox disabled`)
+    console.warn(`dsh-sandbox-better: ${error instanceof Error ? error.message : String(error)}; sandbox disabled`)
     return
   }
   const launcher = config.launcherPath ? expandHome(config.launcherPath) : seam.launcherPath()
   const verdict = seam.probe(launcher)
   if (verdict === 'unusable') {
-    console.warn(`dsh-sandbox-landlock: landlock-run functional probe unusable (${launcher}); sandbox disabled`)
+    console.warn(`dsh-sandbox-better: landlock-run functional probe unusable (${launcher}); sandbox disabled`)
     return
   }
   if (ctx.plugin) ctx.plugin(LandlockFileSystem, { cwd: config.cwd, writeDirs })
   const missing = writeDirs.filter((dir) => !existsDir(dir))
   if (missing.length > 0) {
-    console.warn(`dsh-sandbox-landlock: skipping ${missing.length} missing writeDirs (created later they take effect automatically): ${missing.join(', ')}`)
+    console.warn(`dsh-sandbox-better: skipping ${missing.length} missing writeDirs (created later they take effect automatically): ${missing.join(', ')}`)
   }
   ctx.provide('sandbox', {
     // 生产消费方在 danger-full-access 时不会调用 confine；此处只接收受限模式。
@@ -247,6 +264,17 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
       }
     },
   })
+  const host = ctx as unknown as PluginCtx
+  if (host.get !== undefined) {
+    applyGrants({
+      sandboxPolicy: host.get('sandboxPolicy') as GrantHost['sandboxPolicy'],
+      approval: host.get('approval') as GrantHost['approval'],
+      tools: host.get('tools') as GrantHost['tools'],
+      commands: host.get('commands') as GrantHost['commands'],
+      systemPrompt: host.get('systemPrompt') as GrantHost['systemPrompt'],
+      effect: host.effect === undefined ? undefined : host.effect.bind(host),
+    })
+  }
 }
 
 export default { name, apply }
