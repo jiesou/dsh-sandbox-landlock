@@ -7,21 +7,6 @@ export interface GrantSession {
   header: { cwd?: string }
 }
 
-interface Grant {
-  readonly dir: string
-  readonly dispose: () => void
-}
-
-interface CommandInvocationLike {
-  readonly agent: { session: GrantSession }
-  readonly rawInput: string
-}
-
-interface CommandResultLike {
-  readonly kind: 'success' | 'error'
-  readonly text: string
-}
-
 interface ToolRunContextLike {
   readonly agent?: { session: GrantSession }
   readonly callId?: string
@@ -29,7 +14,6 @@ interface ToolRunContextLike {
 }
 
 interface ToolArgs {
-  readonly action?: 'grant' | 'revoke' | 'list'
   readonly path?: string
 }
 
@@ -41,23 +25,22 @@ interface ApprovalRequestLike {
   readonly signal?: AbortSignal
 }
 
-/** Host services grants consume, all optional except the policy that owns the grant registry. */
+/** Host services the request tool consumes; every one is looked up when it is used. */
 export interface GrantHost {
-  sandboxPolicy: { registerWritableRoot(session: unknown, directory: string): () => void }
-  approval?: { request(request: ApprovalRequestLike): Promise<string> }
-  tools?: { register(tool: unknown): () => void }
-  commands?: { register(command: unknown): () => void }
-  systemPrompt?: {
+  readonly sandboxPolicy: { registerWritableRoot(session: unknown, directory: string): () => void }
+  readonly approval?: { request(request: ApprovalRequestLike): Promise<string> }
+  readonly tools?: { register(tool: unknown): () => void }
+  readonly systemPrompt?: {
     section(section: unknown): () => void
     getSectionOrder(name: string): number
   }
-  effect?: (callback: () => () => void, label?: string) => unknown
+  readonly effect?: (callback: () => () => void, label?: string) => unknown
 }
 
-const USAGE = 'Usage: /grant <dir> | /grant list | /grant revoke <dir>'
+export const TOOL_NAME = 'sandbox_permission_request'
 
-/** One live Session's grants, keyed by the canonical directory they cover. */
-const registry = new WeakMap<GrantSession, Map<string, Grant>>()
+/** One live Session's grants, keyed by the physical directory they cover. */
+const registry = new WeakMap<GrantSession, Map<string, () => void>>()
 
 function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -66,7 +49,7 @@ function reasonOf(error: unknown): string {
 /** Expand `~`, anchor relative paths at the session workspace, and resolve symlinks. */
 export function resolveGrantDir(session: GrantSession, input: string): string {
   const raw = input.trim()
-  if (raw === '') throw new Error('grant: a directory is required')
+  if (raw === '') throw new Error(`${TOOL_NAME}: a directory is required`)
   const expanded = raw === '~'
     ? homedir()
     : raw.startsWith('~/') ? join(homedir(), raw.slice(2)) : raw
@@ -76,38 +59,21 @@ export function resolveGrantDir(session: GrantSession, input: string): string {
   try {
     stats = statSync(absolute)
   } catch {
-    throw new Error(`grant: "${raw}" does not exist`)
+    throw new Error(`${TOOL_NAME}: "${raw}" does not exist`)
   }
-  if (!stats.isDirectory()) throw new Error(`grant: "${raw}" is not a directory`)
+  if (!stats.isDirectory()) throw new Error(`${TOOL_NAME}: "${raw}" is not a directory`)
   // The enforcing host rejects symlinked roots, so grants carry the physical path.
   return realpathSync(absolute)
 }
 
-function grantResolved(host: GrantHost, session: GrantSession, dir: string): string {
-  const grants = registry.get(session) ?? new Map<string, Grant>()
+/** Register one physical directory for a session's future workspace-write calls; idempotent. */
+export function grantDirectory(host: GrantHost, session: GrantSession, input: string): string {
+  const dir = resolveGrantDir(session, input)
+  const grants = registry.get(session) ?? new Map<string, () => void>()
   if (!grants.has(dir)) {
-    grants.set(dir, { dir, dispose: host.sandboxPolicy.registerWritableRoot(session, dir) })
+    grants.set(dir, host.sandboxPolicy.registerWritableRoot(session, dir))
     registry.set(session, grants)
   }
-  return dir
-}
-
-/** Grant one directory to the session's future workspace-write calls; idempotent. */
-export function grantDirectory(host: GrantHost, session: GrantSession, input: string): string {
-  return grantResolved(host, session, resolveGrantDir(session, input))
-}
-
-/** Withdraw one session grant; only this registration is removed. */
-export function revokeDirectory(session: GrantSession, input: string): string {
-  const dir = resolveGrantDir(session, input)
-  const grants = registry.get(session)
-  const grant = grants?.get(dir)
-  if (grants === undefined || grant === undefined) {
-    throw new Error(`grant: "${dir}" is not granted in this session`)
-  }
-  grant.dispose()
-  grants.delete(dir)
-  if (grants.size === 0) registry.delete(session)
   return dir
 }
 
@@ -115,130 +81,85 @@ export function revokeDirectory(session: GrantSession, input: string): string {
 export function listGrants(session: GrantSession): string[] {
   const grants = registry.get(session)
   if (grants === undefined) return []
-  return [...grants.values()].map((grant) => grant.dir).sort()
-}
-
-function formatGrants(session: GrantSession): string {
-  const grants = listGrants(session)
-  if (grants.length === 0) return 'No directory grants in this session. Use /grant <dir> to add one.'
-  return `Directory grants in this session:\n${grants.map((dir) => `- ${dir}`).join('\n')}`
-}
-
-function commandDefinition(host: GrantHost): unknown {
-  return {
-    name: 'grant',
-    description: 'Allow writes under one directory for this session',
-    input: { hint: '<dir> | list | revoke <dir>' },
-    handler(invocation: CommandInvocationLike): CommandResultLike {
-      const raw = invocation.rawInput.trim()
-      const session = invocation.agent.session
-      if (raw === '' || raw === 'list') return { kind: 'success', text: formatGrants(session) }
-      if (raw === 'revoke' || raw.startsWith('revoke ')) {
-        const target = raw.slice('revoke'.length).trim()
-        if (target === '') return { kind: 'error', text: USAGE }
-        try {
-          return { kind: 'success', text: `Revoked write access to ${revokeDirectory(session, target)}.` }
-        } catch (error: unknown) {
-          return { kind: 'error', text: reasonOf(error) }
-        }
-      }
-      try {
-        return { kind: 'success', text: `Granted write access to ${grantDirectory(host, session, raw)} for this session.` }
-      } catch (error: unknown) {
-        return { kind: 'error', text: reasonOf(error) }
-      }
-    },
-  }
+  return [...grants.keys()].sort()
 }
 
 function toolDefinition(host: GrantHost): unknown {
   return {
-    name: 'grant',
-    description: 'Allow writes under one directory for this session, or list and revoke the grants this session holds. '
-      + 'Call it when a command or file write fails because a path outside the session workspace is read-only; '
-      + 'the user is asked to approve each new directory.',
+    name: TOOL_NAME,
+    description: 'Request write access to one directory outside the session workspace for the rest of this session. '
+      + 'Call it after a command or file write was denied for that directory, and retry the operation only once it succeeds. '
+      + 'The user decides; the directory stays read-only when they decline.',
     parameters: {
-      action: { type: 'string', enum: ['grant', 'revoke', 'list'], description: 'What to do. Defaults to grant.' },
       path: {
         type: 'string',
-        description: 'Directory, absolute or relative to the session workspace; `~` expands. Required for grant and revoke.',
+        description: 'Directory, absolute or relative to the session workspace; `~` expands.',
       },
     },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
-        required: ['action', 'grants', 'message'],
+        required: ['path', 'granted'],
         properties: {
-          action: { type: 'string', enum: ['grant', 'revoke', 'list'] },
           path: { type: 'string' },
-          grants: { type: 'array', items: { type: 'string' } },
-          message: { type: 'string' },
+          granted: { type: 'boolean' },
         },
       },
-      render: (_args: unknown, value: { message: string }) => [{ type: 'text', text: value.message }],
+      render: (_args: unknown, value: { path: string; granted: boolean }) => [{
+        type: 'text',
+        text: `Write access to ${value.path} is allowed for this session.`,
+      }],
     },
     async execute(args: ToolArgs, exec: ToolRunContextLike) {
-      const action = args.action ?? 'grant'
       const session = exec.agent?.session
-      if (session === undefined) throw new Error('grant: this call has no session to grant to')
-      if (action === 'list') return { action, grants: listGrants(session), message: formatGrants(session) }
+      if (session === undefined) throw new Error(`${TOOL_NAME}: this call has no session to grant to`)
       const path = args.path?.trim() ?? ''
-      if (path === '') throw new Error(`grant: path is required for action "${action}"`)
-      if (action === 'revoke') {
-        const dir = revokeDirectory(session, path)
-        return { action, path: dir, grants: listGrants(session), message: `Revoked write access to ${dir}.` }
-      }
-      if (action !== 'grant') throw new Error(`grant: unknown action "${action}"`)
+      if (path === '') throw new Error(`${TOOL_NAME}: path is required`)
       const dir = resolveGrantDir(session, path)
-      if (host.approval === undefined) throw new Error('grant: approvals are unavailable in this composition')
+      const approval = host.approval
+      if (approval === undefined) throw new Error(`${TOOL_NAME}: this composition has no approval service`)
       let outcome: string
       try {
-        outcome = await host.approval.request({
+        outcome = await approval.request({
           agent: exec.agent,
-          toolName: 'grant',
+          toolName: TOOL_NAME,
           ...exec.callId === undefined ? {} : { callId: exec.callId },
-          reason: `Allow writes under ${dir} for this session.`,
+          reason: `Write access to ${dir} for this session.`,
           ...exec.signal === undefined ? {} : { signal: exec.signal },
         })
       } catch (error: unknown) {
-        throw new Error(`grant: the approval request failed: ${reasonOf(error)}`)
+        throw new Error(`${TOOL_NAME}: the approval request failed: ${reasonOf(error)}`)
       }
       if (outcome !== 'allowed-once') {
-        throw new Error(`grant: the user did not allow write access to ${dir} (${outcome})`)
+        throw new Error(`${TOOL_NAME}: the user did not allow writes under ${dir} (${outcome})`)
       }
-      grantResolved(host, session, dir)
-      return { action, path: dir, grants: listGrants(session), message: `Granted write access to ${dir} for this session.` }
+      grantDirectory(host, session, path)
+      return { path: dir, granted: true }
     },
   }
 }
 
-/**
- * Register `/grant` and the `grant` tool. The command acts for the user; the
- * tool asks first, because widening a policy is the user's decision.
- */
+/** Register the request tool and its one-line prompt guidance. */
 export function applyGrants(host: GrantHost): void {
   const register = (): (() => void) => {
-    const disposers: Array<() => void> = []
-    if (host.commands !== undefined) disposers.push(host.commands.register(commandDefinition(host)))
-    if (host.tools !== undefined) {
-      disposers.push(host.tools.register(toolDefinition(host)))
-      if (host.systemPrompt !== undefined) {
-        host.systemPrompt.section({
-          name: 'tool:grant',
-          order: host.systemPrompt.getSectionOrder('TOOL_BASH'),
-          text: 'When a path outside the session workspace is not writable, call the `grant` tool for that directory '
-            + 'instead of retrying with sandbox_permissions; the wider sandbox mode stays off.',
-        })
-      }
+    const tools = host.tools
+    if (tools === undefined) return () => {}
+    const dispose = tools.register(toolDefinition(host))
+    const prompt = host.systemPrompt
+    if (prompt !== undefined) {
+      prompt.section({
+        name: `tool:${TOOL_NAME}`,
+        order: prompt.getSectionOrder('TOOL_BASH'),
+        text: 'When a path outside the session workspace is not writable, request it with the '
+          + `\`${TOOL_NAME}\` tool instead of retrying with sandbox_permissions; the wider sandbox mode stays off.`,
+      })
     }
-    return () => {
-      for (const dispose of disposers.reverse()) dispose()
-    }
+    return dispose
   }
   if (host.effect === undefined) {
     register()
     return
   }
-  host.effect(register, 'sandbox-better grants')
+  host.effect(register, 'sandbox-better permission requests')
 }

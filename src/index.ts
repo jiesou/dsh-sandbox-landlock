@@ -266,14 +266,24 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
   })
   const host = ctx as unknown as PluginCtx
   if (host.get !== undefined) {
-    applyGrants({
-      sandboxPolicy: host.get('sandboxPolicy') as GrantHost['sandboxPolicy'],
-      approval: host.get('approval') as GrantHost['approval'],
-      tools: host.get('tools') as GrantHost['tools'],
-      commands: host.get('commands') as GrantHost['commands'],
-      systemPrompt: host.get('systemPrompt') as GrantHost['systemPrompt'],
+    // Cordis answers a service only while its fiber is active, so resolve each
+    // service when it is used instead of capturing a mount-time snapshot.
+    const services: GrantHost = {
+      get sandboxPolicy() {
+        return host.get!('sandboxPolicy') as GrantHost['sandboxPolicy']
+      },
+      get approval() {
+        return host.get!('approval') as GrantHost['approval']
+      },
+      get tools() {
+        return host.get!('tools') as GrantHost['tools']
+      },
+      get systemPrompt() {
+        return host.get!('systemPrompt') as GrantHost['systemPrompt']
+      },
       effect: host.effect === undefined ? undefined : host.effect.bind(host),
-    })
+    }
+    applyGrants(services)
   }
 }
 

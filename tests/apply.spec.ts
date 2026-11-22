@@ -10,7 +10,7 @@ const writeDirs = ['~/.npm', '/tmp', `${workspace}/.extra`, '/tmp/']
 const provided = new Map<string, unknown>()
 let confine!: (
   commandArgv: readonly string[],
-  policy: { mode: string; workspaceRoot: string },
+  policy: { mode: string; workspaceRoot: string; additionalWritableRoots?: readonly string[] },
 ) => { argv: string[]; enforcement: string; denialSignatures: string[]; runnerFailureRules: Array<Record<string, unknown>> }
 
 beforeAll(async () => {

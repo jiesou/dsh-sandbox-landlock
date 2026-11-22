@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH bundle: Landlock-only sandbox provider with session-scoped directory grants (`/grant` and the `grant` tool).",
+  "description": "DSH bundle: Landlock-only sandbox provider with model-requested, user-approved session directory grants.",
   "license": "MIT",
   "keywords": [
     "dsh",

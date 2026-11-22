@@ -2,20 +2,14 @@
 
 Landlock-only sandbox for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): every confined command runs under the bundled `landlock-run` launcher, so the kernel mediates file access at operation time. No namespaces — uid, ownership and `/proc` stay exactly as on the host, which is what makes git/ssh and device access behave.
 
-It also adds what the stock shim lacks: **session-scoped directory grants you can change while the session runs**, as a `/grant` command for you and a `grant` tool for the model.
-
-```
-/grant ~/Documents/dev/other-repo     # allow writes there for this session
-/grant list
-/grant revoke ~/Documents/dev/other-repo
-```
+It also adds what the stock shim lacks: **one directory at a time, granted while the session runs, only when the model asks and you approve**.
 
 ```text
 > the generated files should land in ~/Documents/assets/renders
-grant(path="~/Documents/assets/renders")
+sandbox_permission_request(path="~/Documents/assets/renders")
 ```
 
-The command acts for you. The tool asks first: it goes through the harness approval seam, and only an approval mints the grant. A grant is registered through `SandboxPolicyService.registerWritableRoot`, so it applies to the session's next confined call (bash and the file tools alike), is revoked the moment you revoke it, and never widens the sandbox mode.
+The request goes through the harness approval seam: you see the directory, and only an approval mints the grant. It is registered through `SandboxPolicyService.registerWritableRoot`, so it applies to the session's next confined call (bash and the file tools alike), and it never widens the sandbox mode.
 
 ## Install
 
@@ -32,12 +26,9 @@ Restart the web surface afterwards (bundle layer). Requirements: Linux with Land
 `touch /etc/x` inside the sandbox → `Permission denied` (EACCES) = active.
 `Read-only file system` (EROFS) = still the stock bwrap provider.
 
-```sh
-/grant /tmp
-touch /tmp/probe   # succeeds
-/grant revoke /tmp
-touch /tmp/probe2  # EACCES
-```
+Ask the agent to write outside the workspace; it reports the denial, calls
+`sandbox_permission_request` for that directory, and retries only after you
+approve. Grants last for the session and need a new request after resume or fork.
 
 ## Config
 
@@ -55,7 +46,7 @@ The provider also subclasses the upstream `dsh-fs-local` implementation, so the 
 
 - No private PID namespace / `/proc`: host processes stay visible.
 - Landlock metadata gap: `chmod/chown/utime/setxattr` on owned files are not governed.
-- Grants are runtime-only: they are not saved in the session log and must be re-issued after resume or fork (the harness API's own contract).
+- Grants are runtime-only: they are not saved in the session log and must be re-issued after resume or fork (the harness API's own contract). There is no revoke surface; end the session, or switch the permission preset, to drop them.
 - Grants apply to the next call; a process already running keeps its resolved permissions.
 - Off Linux: no sandbox service provided.
 
@@ -65,7 +56,7 @@ The provider also subclasses the upstream `dsh-fs-local` implementation, so the 
 
 ## 中文
 
-面向 DSH 的 Landlock 沙箱 provider：不走 bwrap/namespace，uid 与文件属主保持主机原样；抓不住路径的场合靠 `landlock-run` 在每次执行时按 inode 施加以规则。除沙箱本体外，它补上了「会话内精确授权目录」这一层：你敲 `/grant <目录>`，模型则通过 `grant` 工具申请（走审批，批准才生效），授予只作用于本会话后续的受限调用，随时 `/grant revoke`。
+面向 DSH 的 Landlock 沙箱 provider：不走 bwrap/namespace，uid 与文件属主保持主机原样；抓不住路径的场合靠 `landlock-run` 在每次执行时按 inode 施加规则。除沙箱本体外，它补上「按目录、按会话」的授权：模型写不进去时调 `sandbox_permission_request`，你在审批框里看到具体目录，批准后该目录立即可写，沙箱模式始终不动。
 
 ## License
 

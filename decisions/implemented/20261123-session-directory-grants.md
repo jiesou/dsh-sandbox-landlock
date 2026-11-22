@@ -18,17 +18,22 @@ a host that registered a grant could not reach it from bash.
 
 - `grantFlags()` and the file provider's root list both read
   `policy.additionalWritableRoots`.
-- `/grant <dir> | /grant list | /grant revoke <dir>` acts for the user.
-- A `grant` tool exposes the same operation with two parameters, `action` and
-  `path`. It resolves and validates the directory first, then asks the approval
-  seam with a host-written sentence, and only `allowed-once` mints the grant.
-  The model supplies no justification text: the directory is the whole request.
-  Listing and revoking need no approval: they cannot widen anything.
+- One model-facing tool, `sandbox_permission_request(path)`. It resolves and
+  validates the directory first, then asks the approval seam with a host-written
+  sentence, and only `allowed-once` mints the grant. The model supplies no
+  justification text: the directory is the whole request.
+- No human command: widening a directory is the model's request and the user's
+  decision, so the tool is the only surface. Revoking means ending the session
+  or switching the permission preset.
+- Services are resolved lazily at call time. Capturing `ctx.get('approval')`
+  during mount yielded `undefined` — the approval fiber is not necessarily
+  active while a sibling plugin registers — and every request then failed with
+  "approvals are unavailable in this composition".
 - Grants resolve `~` and relative paths against the Session workspace, and store
   the physical path (the enforcing host rejects symlinked roots).
-- The registry is plugin-owned (`WeakMap<Session, Map<dir, disposer>>`) so
-  revoking removes exactly this registration, and the system prompt tells the
-  model to prefer `grant` over `sandbox_permissions`.
+- The registry is plugin-owned (`WeakMap<Session, Map<dir, disposer>>`), so one
+  directory is registered once per session, and the system prompt tells the
+  model to prefer the request over `sandbox_permissions`.
 
 ## Consequences
 
