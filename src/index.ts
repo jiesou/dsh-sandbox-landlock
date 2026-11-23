@@ -44,7 +44,6 @@ interface Seam {
 }
 
 interface Config {
-  writeDirs?: string[]
   devicePaths?: string[]
   launcherPath?: string
   cwd?: string
@@ -78,15 +77,12 @@ class LandlockFileSystem extends LocalFileSystem {
   static Config: z<Config> = z.object({
     cwd: z.string().default(process.cwd()),
     diffBasisMaxBytes: z.number().default(10 * 1024 * 1024),
-    writeDirs: z.array(z.string()).default([]),
   })
 
-  private readonly writeDirs: string[]
   private readonly sandboxPolicy: SandboxPolicyService
 
   constructor(ctx: Context, config: Config) {
     super(ctx, config)
-    this.writeDirs = normalizeDirs(config.writeDirs).map(canonicalRoot)
     this.sandboxPolicy = ctx.sandboxPolicy
   }
 
@@ -125,7 +121,6 @@ class LandlockFileSystem extends LocalFileSystem {
       canonicalRoot(policy.workspaceRoot),
       '/tmp',
       ...(policy.additionalWritableRoots ?? []),
-      ...this.writeDirs,
     ]
     if (roots.some(root => contains(root, fresh.targetKey))) return fresh
     throw new FsError(`cannot write "${target.displayPath}": file access denied under workspace-write mode`, 'FS_SANDBOX_DENIED')
@@ -194,14 +189,13 @@ function resolveDevices(patterns: readonly string[] = []): string[] {
   })
 }
 
-function grantFlags(seam: Seam, policy: SandboxPolicy, writeDirs: readonly string[], devicePaths: readonly string[]): string[] {
+function grantFlags(seam: Seam, policy: SandboxPolicy, devicePaths: readonly string[]): string[] {
   const readWrite = policy.mode === 'workspace-write'
     ? [
         '/dev/null',
         '/tmp',
         policy.workspaceRoot,
         ...(policy.additionalWritableRoots ?? []),
-        ...writeDirs,
         ...resolveDevices(devicePaths),
       ]
     : ['/dev/null']
@@ -229,7 +223,6 @@ function isDirectory(path: string): boolean {
 export const name = 'dsh-sandbox-better'
 
 export async function apply(ctx: Context | PluginCtx, config: Config = {}): Promise<void> {
-  const writeDirs = normalizeDirs(config.writeDirs ?? [])
   const devicePaths = config.devicePaths ?? []
   if (platform() !== 'linux') return
   let seam: Seam
@@ -245,16 +238,12 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
     console.warn(`dsh-sandbox-better: landlock-run functional probe unusable (${launcher}); sandbox disabled`)
     return
   }
-  if (ctx.plugin) ctx.plugin(LandlockFileSystem, { cwd: config.cwd, writeDirs })
-  const missing = writeDirs.filter((dir) => !existsDir(dir))
-  if (missing.length > 0) {
-    console.warn(`dsh-sandbox-better: skipping ${missing.length} missing writeDirs (created later they take effect automatically): ${missing.join(', ')}`)
-  }
+  if (ctx.plugin) ctx.plugin(LandlockFileSystem, { cwd: config.cwd })
   ctx.provide('sandbox', {
     // 生产消费方在 danger-full-access 时不会调用 confine；此处只接收受限模式。
     confine(commandArgv: readonly string[], policy: SandboxPolicy): ConfinedArgv {
       return {
-        argv: [launcher, ...grantFlags(seam, policy, writeDirs, devicePaths), '--', ...commandArgv],
+        argv: [launcher, ...grantFlags(seam, policy, devicePaths), '--', ...commandArgv],
         enforcement: verdict,
         denialSignatures: ['permission denied'],
         runnerFailureRules: [{

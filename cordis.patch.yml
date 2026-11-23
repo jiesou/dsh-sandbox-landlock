@@ -1,47 +1,16 @@
-# Disable stock providers; mount Landlock for bash and fs-tool.
+# The grant tool, the approval card and the tolerant argument handling ride the
+# shared sandbox-policy seam and work with any backend. Only the Landlock runner
+# is Linux-specific, so the stock providers stay everywhere else.
 - id: sandbox
-  disabled: true
+  disabled: !!js process.platform === 'linux'
 - id: fs-sandbox
-  disabled: true
+  disabled: !!js process.platform === 'linux'
 - insert:
     - id: sandbox-better
       name: dsh-sandbox-better
       config:
-        writeDirs:
-          - ~/.dsh
-          - ~/.agents
-          - /var/home/linuxbrew/.linuxbrew/lib/node_modules/@deepseek-ai
-          - ~/.mcp-auth
-          - ~/.cache/opencode
-          - ~/.local/share/opencode
-          - ~/.local/share/Trash
-          - ~/.local/share/containers/storage
-          - ~/Downloads
-          - ~/Documents/dev/.blog
-          - ~/Documents/dev/Android
-          - ~/Documents/dev/AppImages
-          - ~/Documents/dev/blender
-          - ~/Documents/dev/mcps
-          - ~/.ssh
-          - /etc/ssh
-          - ~/.config/systemd/user
-          - /etc/systemd
-          - ~/.cache
-          - /run/user/1000
-          - ~/.local/bin
-          - ~/.npm
-          - ~/.bun
-          - ~/.local/share/pnpm
-          - ~/.local/share/uv
-          - ~/.gradle
-          - ~/.m2
-          - ~/.android
-          - ~/.platformio
-          - ~/.espressif
-          - ~/.arduino15
-          - ~/.mineru
-          # 串口等设备节点：通配符在每条命令 confine 时展开（Landlock 规则绑 inode，
-          # 拔插后下一条命令自动重新授权；设备缺席自动剔除，不会触发 launcher exit 125）
+        # 串口等设备节点：通配符在每条命令 confine 时展开（Landlock 规则绑 inode，
+        # 拔插后下一条命令自动重新授权；设备缺席自动剔除，不会触发 launcher exit 125）
         devicePaths:
           - /dev/ttyUSB*
           - /dev/ttyACM*
@@ -54,4 +23,3 @@
           # GPU 加速：VA-API / EGL / Vulkan 只需 render node（udev 建为 0666，全球可读写）。
           # card* 是 DRM master、能接管显示，不在此列。
           - /dev/dri/renderD*
-

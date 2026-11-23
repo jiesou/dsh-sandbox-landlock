@@ -1,7 +1,6 @@
 import { Context } from "@deepseek-ai/cordis";
 //#region src/index.d.ts
 interface Config {
-  writeDirs?: string[];
   devicePaths?: string[];
   launcherPath?: string;
   cwd?: string;

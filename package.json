@@ -56,7 +56,8 @@
     "src",
     "tests",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.en.md"
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",

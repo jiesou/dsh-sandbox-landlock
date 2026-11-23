@@ -1,11 +1,12 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { apply, normalizeDirs } from '../src/index'
+import { homedir } from 'node:os'
 
-const workspace = join(tmpdir(), 'dsl-spec-workspace')
-const writeDirs = ['~/.npm', '/tmp', `${workspace}/.extra`, '/tmp/']
+const workspace = mkdtempSync(join(tmpdir(), 'dsb-spec-workspace-'))
+const extra = mkdtempSync(join(tmpdir(), 'dsb-spec-extra-'))
 
 const provided = new Map<string, unknown>()
 let confine!: (
@@ -14,10 +15,7 @@ let confine!: (
 ) => { argv: string[]; enforcement: string; denialSignatures: string[]; runnerFailureRules: Array<Record<string, unknown>> }
 
 beforeAll(async () => {
-  await apply(
-    { provide: (id, service) => { provided.set(id, service) } },
-    { writeDirs },
-  )
+  await apply({ provide: (id, service) => { provided.set(id, service) } }, {})
   confine = (provided.get('sandbox') as { confine: typeof confine }).confine
 })
 
@@ -29,7 +27,11 @@ describe('normalizeDirs', () => {
 })
 
 describe('workspace-write', () => {
-  const policy = { mode: 'workspace-write', workspaceRoot: workspace }
+  const policy = {
+    mode: 'workspace-write',
+    workspaceRoot: workspace,
+    additionalWritableRoots: [extra, `${extra}/`],
+  }
   let wrapped: ReturnType<typeof confine>
 
   beforeAll(() => {
@@ -43,12 +45,11 @@ describe('workspace-write', () => {
     expect(wrapped.argv.slice(sep + 1)).toEqual(['bash', '-c', 'echo hi'])
   })
 
-  it('授权面齐全且去重（含尾斜杠变体）', () => {
-    for (const dir of normalizeDirs(['/dev/null', '/tmp', workspace, ...writeDirs]).filter((d) => existsSync(d))) {
-      expect(wrapped.argv).toContain(dir)
-    }
-    expect(wrapped.argv.filter((x) => x === '/tmp')).toHaveLength(1)
-    expect(wrapped.argv.filter((x) => x === '/dev/null')).toHaveLength(1)
+  it('官方 additionalWritableRoots 进入 rw 面且去重', () => {
+    expect(wrapped.argv).toContain(realpathSync(workspace))
+    expect(wrapped.argv).toContain(realpathSync(extra))
+    expect(wrapped.argv.filter((x) => x === realpathSync(extra))).toHaveLength(1)
+    expect(wrapped.argv).toContain('/tmp')
   })
 
   it('分类事实对齐官方 LANDLOCK 方言：真实探针判定 + EACCES + exit 125 契约', () => {
@@ -63,24 +64,21 @@ describe('workspace-write', () => {
 })
 
 describe('缺失目录', () => {
-  it('不存在的 writeDirs 被剔除（launcher 对打不开的授权根 exit 125），存在的保留', async () => {
-    const missing = join(tmpdir(), 'dsl-spec-definitely-missing')
+  it('不存在的授权根被剔除（launcher 对打不开的授权根 exit 125），存在的保留', () => {
+    const missing = join(tmpdir(), 'dsb-spec-definitely-missing')
     expect(existsSync(missing)).toBe(false)
-    const provided2 = new Map<string, unknown>()
-    await apply(
-      { provide: (id, service) => { provided2.set(id, service) } },
-      { writeDirs: ['/tmp', missing] },
-    )
-    const confine2 = (provided2.get('sandbox') as { confine: typeof confine }).confine
-    const wrapped2 = confine2(['bash', '-c', 'echo hi'], { mode: 'workspace-write', workspaceRoot: workspace })
-    expect(wrapped2.argv).not.toContain(missing)
-    expect(wrapped2.argv).toContain('/tmp')
+    const wrapped = confine(['bash', '-c', 'echo hi'], {
+      mode: 'workspace-write',
+      workspaceRoot: workspace,
+      additionalWritableRoots: ['/tmp', missing],
+    })
+    expect(wrapped.argv).not.toContain(missing)
+    expect(wrapped.argv).toContain('/tmp')
   })
 })
 
 describe('devicePaths', () => {
-  const devDir = join(tmpdir(), 'dsl-spec-devices')
-  mkdirSync(devDir, { recursive: true })
+  const devDir = mkdtempSync(join(tmpdir(), 'dsb-spec-devices-'))
   const present = ['ttyUSB0', 'ttyUSB1'].map((name) => {
     const path = join(devDir, name)
     writeFileSync(path, '')
@@ -120,36 +118,18 @@ describe('devicePaths', () => {
 })
 
 describe('read-only', () => {
-  it('只有 /dev/null 可写，不收 /tmp、workspace、writeDirs', () => {
-    const ro = confine(['bash', '-c', 'echo hi'], { mode: 'read-only', workspaceRoot: workspace })
-    expect(ro.argv).not.toContain(workspace)
-    expect(ro.argv).not.toContain('/tmp')
-    const rwAt = ro.argv.indexOf('--rw')
-    expect(rwAt).toBeGreaterThan(-1)
-    expect(ro.argv[rwAt + 1]).toBe('/dev/null')
-    expect(ro.argv.filter((x) => x === '--rw')).toHaveLength(1)
-  })
-})
-
-describe('additionalWritableRoots', () => {
-  it('宿主 registerWritableRoot 授予的目录进入同一条命令的 rw 面', async () => {
-    const extra = join(tmpdir(), 'dsl-spec-extra-root')
-    mkdirSync(extra, { recursive: true })
-    const provided4 = new Map<string, unknown>()
-    await apply({ provide: (id, service) => { provided4.set(id, service) } }, {})
-    const confine4 = (provided4.get('sandbox') as { confine: typeof confine }).confine
-    const wrapped4 = confine4(['bash', '-c', 'echo hi'], {
-      mode: 'workspace-write',
-      workspaceRoot: workspace,
-      additionalWritableRoots: [extra],
-    })
-    expect(wrapped4.argv).toContain(extra)
-
-    const readOnly = confine4(['bash', '-c', 'echo hi'], {
+  it('只有 /dev/null 可写，不收 /tmp、workspace、additionalWritableRoots', () => {
+    const ro = confine(['bash', '-c', 'echo hi'], {
       mode: 'read-only',
       workspaceRoot: workspace,
       additionalWritableRoots: [extra],
     })
-    expect(readOnly.argv).not.toContain(extra)
+    expect(ro.argv).not.toContain(workspace)
+    expect(ro.argv).not.toContain('/tmp')
+    expect(ro.argv).not.toContain(extra)
+    const rwAt = ro.argv.indexOf('--rw')
+    expect(rwAt).toBeGreaterThan(-1)
+    expect(ro.argv[rwAt + 1]).toBe('/dev/null')
+    expect(ro.argv.filter((x) => x === '--rw')).toHaveLength(1)
   })
 })
