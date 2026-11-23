@@ -11,6 +11,9 @@
 /** Tools whose schema carries the escalation pair. */
 const ESCALATION_TOOLS = new Set(['bash', 'pwsh', 'write', 'edit'])
 
+/** The closed sandbox-mode vocabulary; anything else stays the model's error. */
+const KNOWN_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access'])
+
 /** Strictly wider targets per effective mode, mirroring the harness table. */
 const WIDER_MODES: Record<string, readonly string[]> = {
   'read-only': ['workspace-write', 'danger-full-access'],
@@ -45,6 +48,7 @@ export function normalizePermissionArgs(
     return rest
   }
   const target = raw.sandbox_permissions as string
+  if (!KNOWN_MODES.has(target)) return undefined
   if (!(WIDER_MODES[mode] ?? []).includes(target)) {
     const { sandbox_permissions: _mode, justification: _reason, ...rest } = raw
     return rest

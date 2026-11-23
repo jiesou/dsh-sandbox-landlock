@@ -29,6 +29,11 @@ describe('normalizePermissionArgs', () => {
       .toBeUndefined()
   })
 
+  it('不在模式词表里的值保持原样，交给宿主报错', () => {
+    expect(normalizePermissionArgs('bash', { command: 'ls', sandbox_permissions: 'full' }, 'workspace-write')).toBeUndefined()
+    expect(normalizePermissionArgs('bash', { command: 'ls', sandbox_permissions: 'workspace_write', justification: 'x' }, 'workspace-write')).toBeUndefined()
+  })
+
   it('非升权工具或非对象参数不碰', () => {
     expect(normalizePermissionArgs('read', { path: '/x', justification: 'x' }, 'workspace-write')).toBeUndefined()
     expect(normalizePermissionArgs('bash', 'ls', 'workspace-write')).toBeUndefined()

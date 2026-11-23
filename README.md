@@ -50,8 +50,11 @@ Before dispatch this plugin rewrites only the escalation pair on `bash`, `pwsh`,
 - a `justification` without `sandbox_permissions` is dropped;
 - a widening target without a reason gets `Agent did not attach a justification.`;
 - a blank reason counts as missing;
-- a target that is not strictly wider than the call's effective mode loses both
-  fields and runs under the current mode.
+- a known target that is not strictly wider than the call's effective mode loses
+  both fields and runs under the current mode.
+
+A value outside the sandbox-mode vocabulary (`full`, `workspace_write`, …) is
+left alone and still fails the harness's own validation.
 
 The command, path and content are never touched, so the call card and the audit
 log still show what the model asked for.
