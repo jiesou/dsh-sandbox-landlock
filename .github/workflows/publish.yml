@@ -27,13 +27,15 @@ jobs:
       - name: Publish
         shell: bash
         run: |
-          set -euo pipefail
-          if output="$(npm publish --provenance --access public 2>&1)"; then
+          set -uo pipefail
+          output="$(npm publish --provenance --access public 2>&1)"
+          status=$?
+          echo "$output"
+          if [ "$status" -eq 0 ]; then
             echo "published"
           elif grep -Eq 'EPUBLISHCONFLICT|previously published versions|previously staged version' <<<"$output"; then
             echo "skip: version already exists"
           else
-            echo "publish failed:"
-            echo "$output"
+            echo "publish failed"
             exit 1
           fi
