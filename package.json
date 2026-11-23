@@ -1,44 +1,35 @@
 {
-  "name": "dsh-sandbox-better",
+  "name": "dsh-sandbox-landlock",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH bundle: Landlock-only sandbox provider with model-requested, user-approved session directory grants.",
+  "description": "DSH bundle: Landlock-only process sandbox provider (no namespaces, uid view untouched).",
   "license": "MIT",
   "keywords": [
     "dsh",
     "dsh-plugin",
     "sandbox",
-    "landlock",
-    "permissions"
+    "landlock"
   ],
   "engines": {
     "dsh": ">=0.2.2-rc.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jiesou/dsh-sandbox-better.git"
+    "url": "git+https://github.com/jiesou/dsh-sandbox-landlock.git"
   },
-  "homepage": "https://github.com/jiesou/dsh-sandbox-better#readme",
+  "homepage": "https://github.com/jiesou/dsh-sandbox-landlock#readme",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json",
-    "./client": "./client.js"
+    "./package.json": "./package.json"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "immediately": true,
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-conversation"
-      ]
     }
   },
   "main": "./lib/index.js",
@@ -52,7 +43,6 @@
   },
   "files": [
     "lib",
-    "client.js",
     "src",
     "tests",
     "cordis.patch.yml",

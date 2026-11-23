@@ -6,8 +6,8 @@
 - id: fs-sandbox
   disabled: !!js process.platform === 'linux'
 - insert:
-    - id: sandbox-better
-      name: dsh-sandbox-better
+    - id: sandbox-landlock
+      name: dsh-sandbox-landlock
       config:
         # 串口等设备节点：通配符在每条命令 confine 时展开（Landlock 规则绑 inode，
         # 拔插后下一条命令自动重新授权；设备缺席自动剔除，不会触发 launcher exit 125）

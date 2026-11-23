@@ -9,9 +9,6 @@ import type { FsEditRequest, FsTarget, FsVersion, FsWriteIntent, FsWriteOutcome,
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import z from '@deepseek-ai/schemastery'
-import { applyGrants } from './grants'
-import { normalizePermissionArgs } from './tolerate'
-import type { GrantHost } from './grants'
 
 interface SandboxPolicy {
   mode: 'read-only' | 'workspace-write' | 'danger-full-access'
@@ -254,62 +251,6 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
       }
     },
   })
-  const host = ctx as unknown as PluginCtx
-  if (host.get !== undefined) {
-    // Cordis answers a service only while its fiber is active, so resolve each
-    // service when it is used instead of capturing a mount-time snapshot.
-    const services: GrantHost = {
-      get sandboxPolicy() {
-        return host.get!('sandboxPolicy') as GrantHost['sandboxPolicy']
-      },
-      get approval() {
-        return host.get!('approval') as GrantHost['approval']
-      },
-      get tools() {
-        return host.get!('tools') as GrantHost['tools']
-      },
-      get systemPrompt() {
-        return host.get!('systemPrompt') as GrantHost['systemPrompt']
-      },
-      modeOf: (agent) => {
-        try {
-          return host.get!('sandboxPolicy') === undefined
-            ? 'workspace-write'
-            : (host.get!('sandboxPolicy') as { resolve(request?: { session?: unknown }): { mode: string } })
-              .resolve({ session: agent.session }).mode
-        } catch {
-          return 'workspace-write'
-        }
-      },
-      effect: host.effect === undefined ? undefined : host.effect.bind(host),
-    }
-    applyGrants(services)
-  }
-  const events = ctx as unknown as {
-    on?: (event: string, listener: (exec: ToolExecutionLike, next: () => Promise<unknown>) => Promise<unknown>) => void
-  }
-  if (events.on !== undefined && host.get !== undefined) {
-    events.on('tools/pre-execute', (exec, next) => {
-      try {
-        const session = exec.agent?.session
-        const policyService = host.get!('sandboxPolicy') as {
-          resolve(request?: { session?: unknown }): SandboxPolicy
-        }
-        const mode = session === undefined ? 'workspace-write' : policyService.resolve({ session }).mode
-        const normalized = normalizePermissionArgs(exec.name, exec.arguments, mode)
-        if (normalized !== undefined) (exec as { arguments: unknown }).arguments = normalized
-      } catch {
-        // A tool call that cannot be normalized runs exactly as the model wrote it.
-      }
-      return next()
-    })
-  }
-}
-
-interface ToolExecutionLike {
-  readonly name: string
-  readonly arguments: unknown
-  readonly agent?: { readonly session: unknown }
 }
 
 export default { name, apply }
