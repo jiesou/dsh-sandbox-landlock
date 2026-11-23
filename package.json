@@ -1,6 +1,6 @@
 {
   "name": "dsh-sandbox-landlock",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "DSH bundle: Landlock-only process sandbox provider (no namespaces, uid view untouched).",
   "license": "MIT",
