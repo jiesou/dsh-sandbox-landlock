@@ -57,7 +57,7 @@
   ],
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-sandbox": "*"
+    "@deepseek-ai/dsh-sandbox": ">=0.2.2-rc.2"
   },
   "dependencies": {
     "@deepseek-ai/node-addon-system": "^0.1.2"
