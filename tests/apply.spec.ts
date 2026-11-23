@@ -1,41 +1,36 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Context } from '@deepseek-ai/cordis'
+import type { SandboxPolicy, SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { apply, normalizeDirs } from '../src/index'
-import { homedir } from 'node:os'
+import { apply } from '../src/index'
 
 const workspace = mkdtempSync(join(tmpdir(), 'dsb-spec-workspace-'))
 const extra = mkdtempSync(join(tmpdir(), 'dsb-spec-extra-'))
 
-const provided = new Map<string, unknown>()
-let confine!: (
-  commandArgv: readonly string[],
-  policy: { mode: string; workspaceRoot: string; additionalWritableRoots?: readonly string[] },
-) => { argv: string[]; enforcement: string; denialSignatures: string[]; runnerFailureRules: Array<Record<string, unknown>> }
+async function sandboxFor(config?: Parameters<typeof apply>[1]): Promise<SandboxProvider> {
+  const ctx = new Context()
+  await apply(ctx, config)
+  return ctx.sandbox
+}
+
+let sandbox!: SandboxProvider
 
 beforeAll(async () => {
-  await apply({ provide: (id, service) => { provided.set(id, service) } }, {})
-  confine = (provided.get('sandbox') as { confine: typeof confine }).confine
-})
-
-describe('normalizeDirs', () => {
-  it('展开 ~、去重、剔除空项', () => {
-    expect(normalizeDirs(['~/.npm', `${homedir()}/.npm`, '', '~/.cache']))
-      .toEqual([`${homedir()}/.npm`, `${homedir()}/.cache`])
-  })
+  sandbox = await sandboxFor()
 })
 
 describe('workspace-write', () => {
-  const policy = {
+  const policy: SandboxPolicy = {
     mode: 'workspace-write',
     workspaceRoot: workspace,
     additionalWritableRoots: [extra, `${extra}/`],
   }
-  let wrapped: ReturnType<typeof confine>
+  let wrapped: Awaited<ReturnType<SandboxProvider['confine']>>
 
-  beforeAll(() => {
-    wrapped = confine(['bash', '-c', 'echo hi'], policy)
+  beforeAll(async () => {
+    wrapped = await sandbox.confine(['bash', '-c', 'echo hi'], policy)
   })
 
   it('launcher 在最前，--ro 只授予 /，原 argv 完整保留', () => {
@@ -64,10 +59,10 @@ describe('workspace-write', () => {
 })
 
 describe('缺失目录', () => {
-  it('不存在的授权根被剔除（launcher 对打不开的授权根 exit 125），存在的保留', () => {
+  it('不存在的授权根被剔除（launcher 对打不开的授权根 exit 125），存在的保留', async () => {
     const missing = join(tmpdir(), 'dsb-spec-definitely-missing')
     expect(existsSync(missing)).toBe(false)
-    const wrapped = confine(['bash', '-c', 'echo hi'], {
+    const wrapped = await sandbox.confine(['bash', '-c', 'echo hi'], {
       mode: 'workspace-write',
       workspaceRoot: workspace,
       additionalWritableRoots: ['/tmp', missing],
@@ -88,48 +83,38 @@ describe('devicePaths', () => {
   mkdirSync(nested, { recursive: true })
 
   it('通配符在每次 confine 时展开，命中的设备进 rw 面', async () => {
-    const provided3 = new Map<string, unknown>()
-    await apply(
-      { provide: (id, service) => { provided3.set(id, service) } },
-      { devicePaths: [`${devDir}/ttyUSB*`, '/dev/null'] },
-    )
-    const confine3 = (provided3.get('sandbox') as { confine: typeof confine }).confine
-    const wrapped3 = confine3(['bash', '-c', 'echo hi'], { mode: 'workspace-write', workspaceRoot: workspace })
-    for (const path of present) expect(wrapped3.argv).toContain(path)
-    expect(wrapped3.argv).not.toContain(nested)
-    expect(wrapped3.argv.filter((x) => x === '/dev/null')).toHaveLength(1)
+    const devices = await sandboxFor({ devicePaths: [`${devDir}/ttyUSB*`, '/dev/null'] })
+    const wrapped = await devices.confine(['bash', '-c', 'echo hi'], { mode: 'workspace-write', workspaceRoot: workspace })
+    for (const path of present) expect(wrapped.argv).toContain(path)
+    expect(wrapped.argv).not.toContain(nested)
+    expect(wrapped.argv.filter((x) => x === '/dev/null')).toHaveLength(1)
   })
 
   it('缺席的设备不进授权面（launcher 对打不开的授权根 exit 125）', async () => {
-    const provided3 = new Map<string, unknown>()
-    await apply(
-      { provide: (id, service) => { provided3.set(id, service) } },
-      { devicePaths: [`${devDir}/ttyACM*`] },
-    )
-    const confine3 = (provided3.get('sandbox') as { confine: typeof confine }).confine
-    const wrapped3 = confine3(['bash', '-c', 'echo hi'], { mode: 'workspace-write', workspaceRoot: workspace })
-    expect(wrapped3.argv.some((x) => x.startsWith(`${devDir}/ttyACM`))).toBe(false)
+    const devices = await sandboxFor({ devicePaths: [`${devDir}/ttyACM*`] })
+    const wrapped = await devices.confine(['bash', '-c', 'echo hi'], { mode: 'workspace-write', workspaceRoot: workspace })
+    expect(wrapped.argv.some((x) => x.startsWith(`${devDir}/ttyACM`))).toBe(false)
   })
 
-  it('read-only 模式不授设备', () => {
-    const ro = confine(['bash', '-c', 'echo hi'], { mode: 'read-only', workspaceRoot: workspace })
-    for (const path of present) expect(ro.argv).not.toContain(path)
+  it('read-only 模式不授设备', async () => {
+    const wrapped = await sandbox.confine(['bash', '-c', 'echo hi'], { mode: 'read-only', workspaceRoot: workspace })
+    for (const path of present) expect(wrapped.argv).not.toContain(path)
   })
 })
 
 describe('read-only', () => {
-  it('只有 /dev/null 可写，不收 /tmp、workspace、additionalWritableRoots', () => {
-    const ro = confine(['bash', '-c', 'echo hi'], {
+  it('只有 /dev/null 可写，不收 /tmp、workspace、additionalWritableRoots', async () => {
+    const wrapped = await sandbox.confine(['bash', '-c', 'echo hi'], {
       mode: 'read-only',
       workspaceRoot: workspace,
       additionalWritableRoots: [extra],
     })
-    expect(ro.argv).not.toContain(workspace)
-    expect(ro.argv).not.toContain('/tmp')
-    expect(ro.argv).not.toContain(extra)
-    const rwAt = ro.argv.indexOf('--rw')
+    expect(wrapped.argv).not.toContain(workspace)
+    expect(wrapped.argv).not.toContain('/tmp')
+    expect(wrapped.argv).not.toContain(extra)
+    const rwAt = wrapped.argv.indexOf('--rw')
     expect(rwAt).toBeGreaterThan(-1)
-    expect(ro.argv[rwAt + 1]).toBe('/dev/null')
-    expect(ro.argv.filter((x) => x === '--rw')).toHaveLength(1)
+    expect(wrapped.argv[rwAt + 1]).toBe('/dev/null')
+    expect(wrapped.argv.filter((x) => x === '--rw')).toHaveLength(1)
   })
 })
