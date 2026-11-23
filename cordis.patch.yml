@@ -1,6 +1,5 @@
-# The grant tool, the approval card and the tolerant argument handling ride the
-# shared sandbox-policy seam and work with any backend. Only the Landlock runner
-# is Linux-specific, so the stock providers stay everywhere else.
+# Landlock is the Linux-only enforcement half; other platforms keep the stock
+# providers. The grant tool lives in dsh-sandbox-better and is backend-agnostic.
 - id: sandbox
   disabled: !!js process.platform === 'linux'
 - id: fs-sandbox
