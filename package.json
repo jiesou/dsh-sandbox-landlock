@@ -26,11 +26,19 @@
       "default": "./lib/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": "./client.js"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   },
   "main": "./lib/index.js",
@@ -44,6 +52,7 @@
   },
   "files": [
     "lib",
+    "client.js",
     "src",
     "tests",
     "cordis.patch.yml",
