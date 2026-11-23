@@ -18,7 +18,7 @@ a host that registered a grant could not reach it from bash.
 
 - `grantFlags()` and the file provider's root list both read
   `policy.additionalWritableRoots`.
-- One model-facing tool, `sandbox_permission_request(path)`. It resolves and
+- One model-facing tool, `request_write_access(path)`. It resolves and
   validates the directory first, then asks the approval seam with a host-written
   sentence, and only `allowed-once` mints the grant. The model supplies no
   justification text: the directory is the whole request.

@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const TOOL = 'sandbox_permission_request'
+    const TOOL = 'request_write_access'
     const NS = 'sandbox-better'
 
     const en = {

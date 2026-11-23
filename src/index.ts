@@ -281,6 +281,16 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
       get systemPrompt() {
         return host.get!('systemPrompt') as GrantHost['systemPrompt']
       },
+      modeOf: (agent) => {
+        try {
+          return host.get!('sandboxPolicy') === undefined
+            ? 'workspace-write'
+            : (host.get!('sandboxPolicy') as { resolve(request?: { session?: unknown }): { mode: string } })
+              .resolve({ session: agent.session }).mode
+        } catch {
+          return 'workspace-write'
+        }
+      },
       effect: host.effect === undefined ? undefined : host.effect.bind(host),
     }
     applyGrants(services)

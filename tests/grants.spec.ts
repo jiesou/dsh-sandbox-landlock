@@ -12,8 +12,9 @@ function sandboxDir(): string {
   return mkdtempSync(join(tmpdir(), 'dsb-grant-'))
 }
 
-function fakeHost() {
+function fakeHost(mode = 'workspace-write') {
   const registered = new Map<string, Record<string, unknown>>()
+  const options = new Map<string, { when?: (context: { agent: { session: FakeSession } }) => boolean }>()
   const calls: Array<Record<string, unknown>> = []
   let outcome = 'allowed-once'
   const host = {
@@ -24,15 +25,17 @@ function fakeHost() {
         return outcome
       },
     },
+    modeOf: () => mode,
     tools: {
-      register: (tool: Record<string, unknown>) => {
+      register: (tool: Record<string, unknown>, registration?: { when?: (context: { agent: { session: FakeSession } }) => boolean }) => {
         registered.set(tool.name as string, tool)
+        options.set(tool.name as string, registration ?? {})
         return () => {}
       },
     },
   }
   applyGrants(host)
-  return { host, registered, calls, setOutcome: (next: string) => { outcome = next } }
+  return { host, registered, options, calls, setOutcome: (next: string) => { outcome = next } }
 }
 
 describe('resolveGrantDir', () => {
@@ -48,6 +51,19 @@ describe('resolveGrantDir', () => {
     const session: FakeSession = { header: { cwd: root } }
     expect(() => resolveGrantDir(session, 'missing')).toThrow(/does not exist/u)
     expect(() => resolveGrantDir(session, '')).toThrow(/directory is required/u)
+  })
+})
+
+describe('tool visibility', () => {
+  it('全权限时工具不参与该步骤，受限时参与', () => {
+    const full = fakeHost('danger-full-access')
+    const when = full.options.get(TOOL_NAME)?.when
+    expect(when).toBeTypeOf('function')
+    const agent = { session: { header: { cwd: sandboxDir() } } }
+    expect(when!({ agent })).toBe(false)
+
+    const confined = fakeHost('workspace-write')
+    expect(confined.options.get(TOOL_NAME)!.when!({ agent })).toBe(true)
   })
 })
 

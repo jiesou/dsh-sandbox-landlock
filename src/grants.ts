@@ -8,6 +8,10 @@ export interface GrantSession {
   header: { cwd?: string }
 }
 
+interface GrantAgent {
+  readonly session: GrantSession
+}
+
 interface ToolRunContextLike {
   readonly agent?: { session: GrantSession }
   readonly callId?: string
@@ -31,7 +35,11 @@ interface ApprovalRequestLike {
 export interface GrantHost {
   readonly sandboxPolicy: { registerWritableRoot(session: unknown, directory: string): () => void }
   readonly approval?: { request(request: ApprovalRequestLike): Promise<string> }
-  readonly tools?: { register(tool: unknown): () => void }
+  readonly tools?: {
+    register(tool: unknown, options?: { when?: (context: { agent: GrantAgent }) => boolean }): () => void
+  }
+  /** The sandbox mode this agent's next call would run under. */
+  readonly modeOf?: (agent: GrantAgent) => string
   readonly systemPrompt?: {
     section(section: unknown): () => void
     getSectionOrder(name: string): number
@@ -39,7 +47,7 @@ export interface GrantHost {
   readonly effect?: (callback: () => () => void, label?: string) => unknown
 }
 
-export const TOOL_NAME = 'sandbox_permission_request'
+export const TOOL_NAME = 'request_write_access'
 
 /** One live Session's grants, keyed by the physical directory they cover. */
 const registry = new WeakMap<GrantSession, Map<string, () => void>>()
@@ -90,7 +98,8 @@ function toolDefinition(host: GrantHost): unknown {
   return {
     name: TOOL_NAME,
     description: 'Ask the user to make one directory writable for this session. '
-      + 'Call it after a write there was denied, then retry.',
+      + 'Under workspace-write only the workspace is writable and everything else is read-only; '
+      + 'call this after a write there was denied, then retry.',
     parameters: {
       path: {
         type: 'string',
@@ -146,13 +155,16 @@ export function applyGrants(host: GrantHost): void {
   const register = (): (() => void) => {
     const tools = host.tools
     if (tools === undefined) return () => {}
-    const dispose = tools.register(toolDefinition(host))
+    const dispose = tools.register(toolDefinition(host), {
+      // Full access already allows every path; a request would only confuse.
+      when: ({ agent }) => host.modeOf?.(agent) !== 'danger-full-access',
+    })
     const prompt = host.systemPrompt
     if (prompt !== undefined) {
       prompt.section({
         name: `tool:${TOOL_NAME}`,
         order: prompt.getSectionOrder('TOOL_BASH'),
-        text: `A path outside the workspace is not writable: request it with \`${TOOL_NAME}\`, not sandbox_permissions.`,
+        text: `A path outside the workspace is read-only: request it with \`${TOOL_NAME}\`, not sandbox_permissions.`,
       })
     }
     return dispose

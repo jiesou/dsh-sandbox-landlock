@@ -6,7 +6,7 @@ It also adds what the stock shim lacks: **one directory at a time, granted while
 
 ```text
 > the generated files should land in ~/Documents/assets/renders
-sandbox_permission_request(path="~/Documents/assets/renders")
+request_write_access(path="~/Documents/assets/renders")
 ```
 
 The request goes through the harness approval seam: you see the directory, and only an approval mints the grant. It is registered through `SandboxPolicyService.registerWritableRoot`, so it applies to the session's next confined call (bash and the file tools alike), and it never widens the sandbox mode.
@@ -27,7 +27,7 @@ Restart the web surface afterwards (bundle layer). Requirements: Linux with Land
 `Read-only file system` (EROFS) = still the stock bwrap provider.
 
 Ask the agent to write outside the workspace; it reports the denial, calls
-`sandbox_permission_request` for that directory, and retries only after you
+`request_write_access` for that directory, and retries only after you
 approve. Grants last for the session and need a new request after resume or fork.
 
 ## Config
@@ -56,7 +56,7 @@ The provider also subclasses the upstream `dsh-fs-local` implementation, so the 
 
 ## 中文
 
-面向 DSH 的 Landlock 沙箱 provider：不走 bwrap/namespace，uid 与文件属主保持主机原样；抓不住路径的场合靠 `landlock-run` 在每次执行时按 inode 施加规则。除沙箱本体外，它补上「按目录、按会话」的授权：模型写不进去时调 `sandbox_permission_request`，你在审批框里看到具体目录，批准后该目录立即可写，沙箱模式始终不动。
+面向 DSH 的 Landlock 沙箱 provider：不走 bwrap/namespace，uid 与文件属主保持主机原样；抓不住路径的场合靠 `landlock-run` 在每次执行时按 inode 施加规则。除沙箱本体外，它补上「按目录、按会话」的授权：模型写不进去时调 `request_write_access`，你在审批框里看到具体目录，批准后该目录立即可写，沙箱模式始终不动。
 
 ## License
 
