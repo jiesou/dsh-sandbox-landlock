@@ -50,3 +50,11 @@ Unit tests cover resolution, idempotent grants, per-Session isolation, revoke,
 the command grammar, and the approval gate (denied → nothing registered).
 Headless E2E: `touch /etc/...` → `权限不够` (EACCES, Landlock), `--add-dir`
 root writable, other home directory denied, `grant` tool fails closed.
+
+## Addendum: tolerant escalation arguments
+
+`tools/pre-execute` may replace the parsed arguments before dispatch (verified
+against a headless run: a rewritten `command` reached the shell). The plugin
+uses that only for the escalation pair on bash/pwsh/write/edit — stray or blank
+justification, a missing reason, and same-or-narrower targets. Command, path and
+content stay untouched so the logged call still matches what the model asked for.

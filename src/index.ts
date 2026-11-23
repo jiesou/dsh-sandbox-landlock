@@ -10,6 +10,7 @@ import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import z from '@deepseek-ai/schemastery'
 import { applyGrants } from './grants'
+import { normalizePermissionArgs } from './tolerate'
 import type { GrantHost } from './grants'
 
 interface SandboxPolicy {
@@ -295,6 +296,31 @@ export async function apply(ctx: Context | PluginCtx, config: Config = {}): Prom
     }
     applyGrants(services)
   }
+  const events = ctx as unknown as {
+    on?: (event: string, listener: (exec: ToolExecutionLike, next: () => Promise<unknown>) => Promise<unknown>) => void
+  }
+  if (events.on !== undefined && host.get !== undefined) {
+    events.on('tools/pre-execute', (exec, next) => {
+      try {
+        const session = exec.agent?.session
+        const policyService = host.get!('sandboxPolicy') as {
+          resolve(request?: { session?: unknown }): SandboxPolicy
+        }
+        const mode = session === undefined ? 'workspace-write' : policyService.resolve({ session }).mode
+        const normalized = normalizePermissionArgs(exec.name, exec.arguments, mode)
+        if (normalized !== undefined) (exec as { arguments: unknown }).arguments = normalized
+      } catch {
+        // A tool call that cannot be normalized runs exactly as the model wrote it.
+      }
+      return next()
+    })
+  }
+}
+
+interface ToolExecutionLike {
+  readonly name: string
+  readonly arguments: unknown
+  readonly agent?: { readonly session: unknown }
 }
 
 export default { name, apply }

@@ -42,6 +42,20 @@ Launcher resolution, grant argv and the functional probe come from the official 
 
 The provider also subclasses the upstream `dsh-fs-local` implementation, so the file tools enforce the same roots as bash: the session workspace, `/tmp`, this plugin's `writeDirs`, and every `additionalWritableRoots` entry — which is where session grants land. The stock `dsh-fs-sandbox` provider is disabled by the companion patch.
 
+## Permission arguments the model gets wrong
+
+Before dispatch this plugin rewrites only the escalation pair on `bash`, `pwsh`,
+`write` and `edit`, so a confident-but-sloppy call still runs:
+
+- a `justification` without `sandbox_permissions` is dropped;
+- a widening target without a reason gets `Agent did not attach a justification.`;
+- a blank reason counts as missing;
+- a target that is not strictly wider than the call's effective mode loses both
+  fields and runs under the current mode.
+
+The command, path and content are never touched, so the call card and the audit
+log still show what the model asked for.
+
 ## Trade-offs
 
 - No private PID namespace / `/proc`: host processes stay visible.
