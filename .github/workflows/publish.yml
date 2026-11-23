@@ -7,6 +7,7 @@ on:
   push:
     tags:
       - '[0-9]*'
+      - 'v[0-9]*' # pnpm version tags with a v prefix; the hook accepts both
   workflow_dispatch:
 
 permissions:
